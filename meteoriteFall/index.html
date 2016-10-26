@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Meteorite Fall</title>
+
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0; background: #F5F5F5; }
+      #map-canvas { height: 85% }
+
+      #slider { 
+        width: 70%;
+        height: 5px;
+	text-align: 'center'; 
+	margin-top: 0px;
+      }
+
+      #footer {
+        display: flex;
+        margin: 20px;
+	text-align: center;
+      }
+
+      p {
+	color: #4c4a37;
+	font-size: 18px;
+	line-height: 32px;
+	margin: 10px; 
+	text-align: center;
+      }
+
+      .ui-slider-horizontal .ui-slider-handle {
+         top: -.5em !important;
+      }  
+
+      #firstYear {
+	color: #4c4a37;
+	width: 15%;
+	font-size: 1.2em;
+	text-align: right;
+	margin-right: 1em;
+	margin-top: -.5em;
+      }
+
+      #lastYear {
+	color: #4c4a37;
+	width: 15%;
+	font-size: 1.2em;
+	text-align: left;
+	margin-left: 1em;
+	margin-top: -.5em;
+      }
+
+      a.ui-slider-handle.ui-state-default.ui-corner-all {
+        width: 10px;
+        height: 20px;
+      }
+
+      div.tooltip {	
+        position: absolute;			
+	width: 150px;					
+	height: 100px;					
+	padding: 10px;				
+	font: 12px sans-serif;		
+	background: rgba(255,255,255,0.8);	
+	opacity: 0.9;
+	border: 0px;		
+	border-radius: 2px;			
+	pointer-events: none;			
+	z-index: 100;
+      }
+
+      .leaflet-container circle:hover {
+        cursor: help;
+      }
+
+      </style>
+      <link href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.3/leaflet.css' rel='stylesheet' type='text/css'/>
+      <link href='http://code.jquery.com/ui/1.9.2/themes/base/jquery-ui.css' rel='stylesheet' type='text/css'/>
+      <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+
+    </head>
+    <body>
+      <div id="map-canvas"></div>
+      <p>Range of years of meteorites' falls</p>
+      <div id="footer">
+        <div id="firstYear">861</div>
+        <div id="slider"></div>
+        <div id="lastYear">2013</div>
+      </div>
+
+      <!--JQuery range slider-->
+      <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>
+      <script src="http://code.jquery.com/ui/1.9.2/jquery-ui.js"></script>
+
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/leaflet.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.4.9/d3.min.js"></script>
+      <script src="L.D3SvgOverlay.min.js"></script>
+
+      <!--d3 tooltip-->
+      <script src="http://d3js.org/d3.v3.min.js"></script>
+      <script>
+
+        var map = L.map("map-canvas", {center:[20, 30],zoom:2});
+	var tiles = L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+	  attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+	});
+	tiles.addTo(map);
+
+	//Define the div for the tooltip
+	var div = d3.select('#map-canvas').append('div')
+	  .attr('class', 'tooltip')
+	  .style('opacity', 0);
+
+	var meteoritesFalls = [];
+	var meteoritesOverlay = L.d3SvgOverlay(function(selection, projection) {
+
+	  var updateSelection = selection.selectAll('circle').data(meteoritesFalls);
+	  updateSelection.enter()
+	    .append('circle')
+	    .attr('id', function(d){ return d.id; })
+	    .attr('r', function(d){ return d.radius; })
+	    .attr('cx', function(d) { 
+	      if (d.latLng) {
+	        return projection.latLngToLayerPoint(d.latLng).x;
+	      }
+	    })
+	    .attr('cy', function(d) { 
+	      if (d.latLng) {
+	        return projection.latLngToLayerPoint(d.latLng).y;
+	      }
+	    })
+	    .attr('stroke', 'black')
+	    .attr('stroke-width', 0.5)
+	    .attr('fill-opacity', "0.8")
+	    .attr('fill', function(d){ return "#b22222"; });
+
+	  updateSelection.attr('r', function(d){ return ( d.radius / projection.scale ); })
+	    .attr('stroke-width', 0.5 / projection.scale)
+	    .on('mouseover', function(d) {
+	      div.transition()
+	        .duration(200)
+	        .style('opacity', .9);
+	      div .html('Name: ' + d.name + '<br>' + 'Class: ' + d.recclass + '<br>' 
+		+ 'Year of fall: ' + d.year + '<br>' + 'Latitude: ' + d.reclat + '<br>' 
+		+ 'Longitude: ' + d.reclong + '<br>' + 'Mass: ' + d.mass + 'g')
+	        .style('left', '0px')
+	        .style('bottom', '0px');
+	    })
+	    .on('mouseout', function(d) {
+	      div.transition()
+	       .duration(10000)
+	       .style('opacity', 0);
+	    });
+
+	});
+
+	//Control of the layers 
+	L.control.layers({"Geo Tiles": tiles}, {"Meteorite falls": meteoritesOverlay}).addTo(map);
+
+	var firstYear = document.getElementById('firstYear');
+	var lastYear = document.getElementById('lastYear');
+	var theYear; var meteoriteId;
+        var years = [];
+
+        d3.json("https://data.nasa.gov/resource/gh4g-9sfh.json", function(error, data) {
+	  if (error) return console.error(error);
+
+	  //Create an array containing all the years for the range slider
+          meteoritesFalls = data.map(function(d){
+            var formedDate = (d.year).split('T')[0].split('-')[0];
+            years.push(Number(formedDate));
+          });
+
+	  //If at least one of arguments cannot be converted to a number, the result of Math.max is NaN
+	  var yearMax = Math.max.apply(null, years);
+	  var yearMin = Math.min.apply(null, years);
+
+          //JQuery range slider
+	  $("#slider").slider({
+	    range: true,
+	    min: yearMin,
+	    max: yearMax,
+	    values: [ yearMin, yearMax ],
+	    slide: function(event, ui) {
+	      firstYear.innerHTML = ui.values[0];
+	      lastYear.innerHTML = ui.values[1];
+	      for (var prop in meteoritesFalls) {
+	        theYear = Number(meteoritesFalls[prop].year);
+	        meteoriteId = meteoritesFalls[prop].id;
+	        if (theYear < ui.values[0] || theYear > ui.values[1]) {
+	          document.getElementById(meteoriteId).style.display = 'none';
+	        } else if (theYear > ui.values[0] || theYear < ui.values[1]) {
+	          document.getElementById(meteoriteId).style.display = 'block';
+	        } 	
+	      }
+	    }
+	  });
+
+	  meteoritesFalls = data.map(function(d){
+	    if (d.reclat && d.reclong) {
+	      d.latLng = [+d.reclat, +d.reclong];
+	    }
+	    d.radius = 5;
+	    d.mass = d.mass ? d.mass : '-';
+	    var formedDate = (d.year).split('T')[0].split('-')[0];
+	    d.year = formedDate;
+	    return d;
+	  });
+	  meteoritesOverlay.addTo(map);
+        });
+
+    </script>
+  </body>
+</html>
